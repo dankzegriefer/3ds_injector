@@ -158,7 +158,7 @@ static Result load_code(u64 progid, prog_addrs_t *shared, u64 prog_handle, int i
   }
 
   // patch
-  patch_code(progid, (u8 *)shared->text_addr, shared->total_size << 12);
+  patchCode(progid, (u8 *)shared->text_addr, shared->total_size << 12);
 
   return 0;
 }
@@ -489,6 +489,7 @@ int main()
   u32* cmdbuf;
 
   ret = 0;
+
   srv_handle = &g_handles[1];
   notification_handle = &g_handles[0];
 

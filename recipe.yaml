@@ -1,0 +1,20 @@
+description: Temporary 3ds_injector
+
+patches:
+    3ds_injector.cxi:
+        type: Sysmodule
+        subtype: NATIVE_FIRM
+        versions:
+            o3ds:
+                0x1F: 0
+                0x2A: 0
+                0x30: 0
+                0x37: 0
+                0x38: 0
+                0x49: 0
+                0x50: 0
+            n3ds:
+                0x04: 0
+                0x0F: 0
+                0x1B: 0
+                0x1F: 0

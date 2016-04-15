@@ -7,7 +7,8 @@ $(error "Please set DEVKITARM in your environment. export DEVKITARM=<path to>dev
 endif
 
 TOPDIR ?= $(CURDIR)
-MAKEROM ?= $(DEVKITARM)/bin/makerom
+MAKEROM ?= makerom
+PYTHON ?= python3
 include $(DEVKITARM)/3ds_rules
 
 #---------------------------------------------------------------------------------
@@ -17,7 +18,7 @@ include $(DEVKITARM)/3ds_rules
 # DATA is a list of directories containing data files
 # INCLUDES is a list of directories containing header files
 #---------------------------------------------------------------------------------
-TARGET		:=	$(notdir $(CURDIR))
+TARGET		:=	3ds_injector
 BUILD		:=	build
 SOURCES		:=	source
 DATA		:=	data
@@ -29,7 +30,7 @@ INCLUDES	:=	include
 ARCH	:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
 
 CFLAGS	:= -flto -Wall -Os -mword-relocations \
-			-fomit-frame-pointer -ffunction-sections -fdata-sections \
+			-fomit-frame-pointer -ffunction-sections -fdata-sections -fshort-wchar \
 			$(ARCH)
 
 CFLAGS	+=	$(INCLUDE) -DARM11 -D_3DS
@@ -106,7 +107,7 @@ $(BUILD):
 #---------------------------------------------------------------------------------
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(OUTPUT).cxi $(TARGET).elf
+	@rm -fr $(BUILD) $(OUTPUT).cake $(OUTPUT).cxi $(TARGET).elf
 
 
 #---------------------------------------------------------------------------------
@@ -117,6 +118,8 @@ DEPENDS	:=	$(OFILES:.o=.d)
 #---------------------------------------------------------------------------------
 # main targets
 #---------------------------------------------------------------------------------
+$(OUTPUT).cake  : $(OUTPUT).cxi
+	cd $(TOPDIR) && $(PYTHON) patissier.py recipe.yaml $@
 $(OUTPUT).cxi	: $(OUTPUT).elf
 	$(MAKEROM) -f ncch -rsf ../loader.rsf -nocodepadding -o $@ -elf $<
 

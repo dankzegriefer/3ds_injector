@@ -24,12 +24,6 @@ void pxipmExit(void)
   svcCloseHandle(pxipmHandle);
 }
 
-
-static __attribute__((naked)) void svcBreak2(int reason)
-{
-  asm ("svc 0x3c");
-}
-
 Result PXIPM_RegisterProgram(u64 *prog_handle, FS_ProgramInfo *title, FS_ProgramInfo *update)
 {
   u32 *cmdbuf = getThreadCommandBuffer();
