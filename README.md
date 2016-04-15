@@ -26,5 +26,9 @@ size to drop in as a replacement. A hacky way is
 with the size value to get the NCCH to be the exact same size as the one 
 found in your decrypted FIRM dump.
 
-Once you have a NCCH of the right size, just replace it in your decrypted FIRM 
-and find a way to launch it (for example with ReiNAND).
+## This Repo
+This repo takes the AuReiNand code for injector and the Cakes loader Makefile, Recipe.yaml, and patissier.py to bring
+AuReiNand's mods to Cakes.
+
+
+AuroraWright and mid-kid did all of the hard code work, all I did was copy+paste, I didn't make this a pull request to mid's repo because mid-kid wants to make a stable CakesFW release.
