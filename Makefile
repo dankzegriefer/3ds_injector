@@ -8,7 +8,7 @@ endif
 
 TOPDIR ?= $(CURDIR)
 MAKEROM ?= makerom
-PYTHON ?= python3
+PYTHON ?= py -3
 include $(DEVKITARM)/3ds_rules
 
 #---------------------------------------------------------------------------------
