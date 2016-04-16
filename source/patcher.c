@@ -5,13 +5,9 @@
 
 #ifndef PATH_MAX
 #define PATH_MAX 255
-#define CONFIG(a) ((config >> (a + 16)) & 1)
-#define MULTICONFIG(a) ((config >> (a * 2 + 6)) & 3)
-#define BOOTCONFIG(a, b) ((config >> a) & b)
 #endif
 
-static u32 config = 0;
-static u8 secureInfo[0x111] = {0};
+u32 OC_N3DS = 0; // Set to 1 to enable n3DS overclocking in all titles
 
 //Quick Search algorithm, adapted from http://igm.univ-mlv.fr/~lecroq/string/node19.html#SECTION00190
 static u8 *memsearch(u8 *startPos, const void *pattern, u32 size, u32 patternSize)
@@ -77,45 +73,6 @@ static int fileOpen(IFile *file, FS_ArchiveID id, const char *path, int flags)
     ppath.size = len + 1;
 
     return IFile_Open(file, archive, ppath, flags);
-}
-
-static int loadSecureInfo(void)
-{
-    if(secureInfo[0] == 0xFF)
-        return 0;
-
-    IFile file;
-    Result ret = fileOpen(&file, ARCHIVE_NAND_RW, "/sys/SecureInfo_C", FS_OPEN_READ);
-    if(R_SUCCEEDED(ret))
-    {
-        u64 total;
-
-        ret = IFile_Read(&file, &total, secureInfo, 0x111);
-        IFile_Close(&file);
-        if(R_SUCCEEDED(ret) && total == 0x111)
-            secureInfo[0] = 0xFF;
-    }
-
-    return ret;
-}
-
-static int loadConfig(void)
-{
-    if(config)
-        return 0;
-
-    IFile file;
-    Result ret = fileOpen(&file, ARCHIVE_SDMC, "/aurei/config.bin", FS_OPEN_READ);
-    if(R_SUCCEEDED(ret))
-    {
-        u64 total;
-
-        ret = IFile_Read(&file, &total, &config, 4);
-        IFile_Close(&file);
-        if(R_SUCCEEDED(ret)) config |= 1 << 4;
-    }
-
-    return ret;
 }
 
 static int loadTitleLocaleConfig(u64 progId, u8 *regionId, u8 *languageId)
@@ -283,8 +240,34 @@ static void patchCfgGetRegion(u8 *code, u32 size, u8 regionId, u32 CFGUHandleOff
     }
 }
 
+static int replaceCode(u64 progid, u8 *code, u32 size) {
+
+	char path[] = "/cakes/code/0000000000000000.bin";
+
+	u32 end = 27;
+
+	for (int x = 0; x < 16; x++) { // Modified from StackOverflow
+		char* hexArray = "0123456789ABCDEF"; // A heaven for n00bs who suck at hex math
+		path[end - x] = hexArray[((progid >> 4*x) & 0xF)]; // Like me (Wolfvak)
+	}
+
+	IFile file;
+	Result ret;
+	u64 total;
+
+	ret = fileOpen(&file, ARCHIVE_SDMC, path, FS_OPEN_READ); // Open the door
+	if (R_SUCCEEDED(ret)) { // Check the floor
+		ret = IFile_Read(&file, &total, code, size); // Everybody walk the dinosaur
+		IFile_Close(&file); // err, I mean, load contents of (path) into (code)
+	}
+
+	return ret;
+}
+
 void patchCode(u64 progId, u8 *code, u32 size)
-{
+{	
+	replaceCode(progId, code, size);
+	
     switch(progId)
     {
         case 0x0004003000008F02LL: // USA Menu
@@ -372,21 +355,17 @@ void patchCode(u64 progId, u8 *code, u32 size)
         case 0x0004001000027000LL: // KOR MSET
         case 0x0004001000028000LL: // TWN MSET
         {
-            if(R_SUCCEEDED(loadConfig()) && CONFIG(6))
-            {
-                static const u16 verPattern[] = u"Ver.";
-                const u32 currentNand = BOOTCONFIG(0, 3);
-                const u32 matchingFirm = BOOTCONFIG(2, 1) == (currentNand != 0);
-
-                //Patch Ver. string
-                patchMemory(code, size,
-                    verPattern,
-                    sizeof(verPattern) - sizeof(u16), 0,
-                    !currentNand ? ((matchingFirm) ? u" Sys" : u"SysA") :
-                                   ((currentNand == 1) ? (matchingFirm ? u" Emu" : u"EmuA") : ((matchingFirm) ? u"Emu2" : u"Em2A")),
-                    sizeof(verPattern) - sizeof(u16), 1
-                );
-            }
+                static const char version_pattern[] = {
+					'V', 0x00, 'e', 0x00, 'r', 0x00, '.', 0x00
+					};
+				// ^ UTF-16, just rolling with it...
+				static const char version_patched[] = {
+					'K', 0x00, 'E', 0x00, 'K', 0x00, 'S', 0x00
+					};
+				
+				patchMemory(code, size,
+				version_pattern, sizeof(version_pattern), 0,
+				version_patched, sizeof(version_patched), 1);
 
             break;
         }
@@ -408,7 +387,7 @@ void patchCode(u64 progId, u8 *code, u32 size)
                 sizeof(stopCartUpdatesPatch), 2
             );
 
-            if(R_SUCCEEDED(loadConfig()) && MULTICONFIG(1))
+            if(OC_N3DS)
             {
                 static const u8 cfgN3dsCpuPattern[] = {
                     0x40, 0xA0, 0xE1, 0x07, 0x00
@@ -420,76 +399,33 @@ void patchCode(u64 progId, u8 *code, u32 size)
                 if(cfgN3dsCpuLoc != NULL)
                 {
                     *(u32 *)(cfgN3dsCpuLoc + 3) = 0xE1A00000;
-                    *(u32 *)(cfgN3dsCpuLoc + 0x1F) = 0xE3A00000 | MULTICONFIG(1);
+                    *(u32 *)(cfgN3dsCpuLoc + 0x1F) = 0xE3A00001; // Make it 0xE3A00000 to disable L2 cache
                 }
             }
 
             break;
         }
+	}
 
-        case 0x0004013000001702LL: // CFG
-        {
-            static const u8 secureinfoSigCheckPattern[] = {
-                0x06, 0x46, 0x10, 0x48, 0xFC
-            };
-            static const u8 secureinfoSigCheckPatch[] = {
-                0x00, 0x26
-            };
+	u32 tidHigh = (progId & 0xFFFFFFF000000000LL) >> 0x24;
 
-            //Disable SecureInfo signature check
-            patchMemory(code, size, 
-                secureinfoSigCheckPattern, 
-                sizeof(secureinfoSigCheckPattern), 0, 
-                secureinfoSigCheckPatch, 
-                sizeof(secureinfoSigCheckPatch), 1
-            );
+	if(tidHigh == 0x0004000)
+	{
+		//Language emulation
+		u8 regionId = 0xFF,
+		languageId = 0xFF;
+		int ret = loadTitleLocaleConfig(progId, &regionId, &languageId);
 
-            if(R_SUCCEEDED(loadSecureInfo()))
-            {
-                static const u16 secureinfoFilenamePattern[] = u"SecureInfo_";
-                static const u16 secureinfoFilenamePatch[] = u"C";
-
-                //Use SecureInfo_C
-                patchMemory(code, size, 
-                    secureinfoFilenamePattern, 
-                    sizeof(secureinfoFilenamePattern) - sizeof(u16),
-                    sizeof(secureinfoFilenamePattern) - sizeof(u16), 
-                    secureinfoFilenamePatch, 
-                    sizeof(secureinfoFilenamePatch) - sizeof(u16), 2
-                );
-            }
-
-            break;
-        }
-
-        default:
-            if(R_SUCCEEDED(loadConfig()) && CONFIG(4))
-            {
-                u32 tidHigh = (progId & 0xFFFFFFF000000000LL) >> 0x24;
-
-                if(tidHigh == 0x0004000)
-                {
-                    //Language emulation
-                    u8 regionId = 0xFF,
-                       languageId = 0xFF;
-
-                    int ret = loadTitleLocaleConfig(progId, &regionId, &languageId);
-
-                    if(R_SUCCEEDED(ret))
-                    {
-                        u32 CFGUHandleOffset;
-
-                        u8 *CFGU_GetConfigInfoBlk2_endPos = getCfgOffsets(code, size, &CFGUHandleOffset);
-
-                        if(CFGU_GetConfigInfoBlk2_endPos != NULL)
-                        {
-                            if(languageId != 0xFF) patchCfgGetLanguage(code, size, languageId, CFGU_GetConfigInfoBlk2_endPos);
-                            if(regionId != 0xFF) patchCfgGetRegion(code, size, regionId, CFGUHandleOffset);
-                        }
-                    }
-                }
-
-            break;
-        }
-    }
+		if(R_SUCCEEDED(ret))
+		{
+			u32 CFGUHandleOffset;
+			u8 *CFGU_GetConfigInfoBlk2_endPos = getCfgOffsets(code, size, &CFGUHandleOffset);
+			if(CFGU_GetConfigInfoBlk2_endPos != NULL)
+			{
+				if(languageId != 0xFF) patchCfgGetLanguage(code, size, languageId, CFGU_GetConfigInfoBlk2_endPos);
+				if(regionId != 0xFF) patchCfgGetRegion(code, size, regionId, CFGUHandleOffset);
+			}
+		}
+	}
+	
 }

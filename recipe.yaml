@@ -1,4 +1,4 @@
-description: Temporary 3ds_injector
+description: 3ds_injector for CakesFW (WIP!)
 
 patches:
     3ds_injector.cxi:
