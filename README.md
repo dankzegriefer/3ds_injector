@@ -28,10 +28,14 @@ found in your decrypted FIRM dump.
 
 ## This Repo
 This repo takes the AuReiNand code for injector and the Cakes loader Makefile, Recipe.yaml, and patissier.py to bring
-AuReiNand's mods to Cakes.
+AuReiNand's mods to Cakes. It also takes some code commited by Wolfvak.
 
 It also removes some features like SecureInfo loading in order to keep it simple, if you want to use a different SecureInfo just use a {red, emu}NAND.
 Adds decompressed code section replacement (HANS-style) to this loader, allowing you to load code patches on the fly, like Mystery Machine (6th gen Pokemon games) and SaltySD (SSB RomFS redirection patch).
 NOT WORKING YET FOR REBOOT TITLES ON O3DS!
 
 AuroraWright and mid-kid did all of the hard code work, all I did was copy+paste, I didn't make this a pull request to mid's repo because mid-kid wants to make a stable CakesFW release.
+
+
+DUE TO A GLITCH IN OVERCLOCKING RELEASE 2.0 HAS BEEN REMOVED.
+
