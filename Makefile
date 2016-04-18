@@ -8,8 +8,14 @@ endif
 
 TOPDIR ?= $(CURDIR)
 MAKEROM ?= makerom
-PYTHON ?= py -3
 include $(DEVKITARM)/3ds_rules
+
+ifeq ($(OS),Windows_NT)
+PYTHON = py -3
+else
+PYTHON = python3
+endif
+
 
 #---------------------------------------------------------------------------------
 # TARGET is the name of the output

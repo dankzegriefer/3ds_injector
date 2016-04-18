@@ -3,11 +3,11 @@
 #include "patcher.h"
 #include "ifile.h"
 
+#include "paths.h"
+
 #ifndef PATH_MAX
 #define PATH_MAX 255
 #endif
-
-u32 OC_N3DS = 0; // Set to 1 to enable n3DS overclocking in all titles
 
 //Quick Search algorithm, adapted from http://igm.univ-mlv.fr/~lecroq/string/node19.html#SECTION00190
 static u8 *memsearch(u8 *startPos, const void *pattern, u32 size, u32 patternSize)
@@ -77,12 +77,12 @@ static int fileOpen(IFile *file, FS_ArchiveID id, const char *path, int flags)
 
 static int loadTitleLocaleConfig(u64 progId, u8 *regionId, u8 *languageId)
 {
-    /* Here we look for "/aurei/locales/[u64 titleID in hex, uppercase].txt"
+    /* Here we look for "/injector/locales/[u64 titleID in hex, uppercase].txt"
        If it exists it should contain, for example, "EUR IT" */
 
-    char path[] = "/aurei/locales/0000000000000000.txt";
+    char path[] = LOCALES_PATH;
 
-    u32 i = 30;
+    u32 i = strlen(path) - 5;
 
     while(progId > 0)
     {
@@ -113,7 +113,7 @@ static int loadTitleLocaleConfig(u64 progId, u8 *regionId, u8 *languageId)
                 break;
             }
         }
-		
+
         for(u32 i = 0; i < 12; ++i)
         {
             static const char *languages[] = {"JP", "EN", "FR", "DE", "IT", "ES", "ZH", "KO", "NL", "PT", "RU", "TW"};
@@ -240,15 +240,47 @@ static void patchCfgGetRegion(u8 *code, u32 size, u8 regionId, u32 CFGUHandleOff
     }
 }
 
+// Returns the value at CLOCK_PATH, obtained from progId
+// 0 = Don't enable, 1 = Only N3DS clock speed patch, 2 = N3DS clock speed patch + enable L2 cache
+// Returns 0 if file doesn't exists, or can't be opened
+
+static int getClockConfig(u64 progid) {
+	char path[] = CLOCK_PATH;
+
+	u32 end = strlen(path) - 5;
+	
+	for (int x = 0; x < 16; x++) {
+		char* hexArray = "0123456789ABCDEF";
+		path[end - x] = hexArray[((progid >> 4*x) & 0xF)];
+	}
+	
+	IFile file;
+	Result ret;
+	u64 total;
+
+	ret = fileOpen(&file, ARCHIVE_SDMC, path, FS_OPEN_READ);
+	u8 clock_cfg;
+
+	if (R_FAILED(ret))
+		return 0;
+
+	if (R_SUCCEEDED(ret)) {
+		ret = IFile_Read(&file, &total, &clock_cfg, 1);
+		IFile_Close(&file);
+	}
+	return (int)clock_cfg + '0';
+}
+
 static int replaceCode(u64 progid, u8 *code, u32 size) {
 
-	char path[] = "/cakes/code/0000000000000000.bin";
+	char path[] = CODE_PATH;
 
-	u32 end = 27;
+	u32 end = strlen(path) - 5; // strlen(path) >= 20, so I don't need to check this
+	// Unless someone really wants to fuck shit up of course
 
-	for (int x = 0; x < 16; x++) { // Modified from StackOverflow
-		char* hexArray = "0123456789ABCDEF"; // A heaven for n00bs who suck at hex math
-		path[end - x] = hexArray[((progid >> 4*x) & 0xF)]; // Like me (Wolfvak)
+	for (int x = 0; x < 16; x++) {
+		char* hexArray = "0123456789ABCDEF";
+		path[end - x] = hexArray[((progid >> 4*x) & 0xF)];
 	}
 
 	IFile file;
@@ -260,7 +292,6 @@ static int replaceCode(u64 progid, u8 *code, u32 size) {
 		ret = IFile_Read(&file, &total, code, size); // Everybody walk the dinosaur
 		IFile_Close(&file); // err, I mean, load contents of (path) into (code)
 	}
-
 	return ret;
 }
 
@@ -347,7 +378,7 @@ void patchCode(u64 progId, u8 *code, u32 size)
 
             break;
         }
-        
+
         case 0x0004001000021000LL: // USA MSET
         case 0x0004001000020000LL: // JPN MSET
         case 0x0004001000022000LL: // EUR MSET
@@ -356,13 +387,13 @@ void patchCode(u64 progId, u8 *code, u32 size)
         case 0x0004001000028000LL: // TWN MSET
         {
                 static const char version_pattern[] = {
-					'V', 0x00, 'e', 0x00, 'r', 0x00, '.', 0x00
+					'V', 0, 'e', 0, 'r', 0, '.', 0
 					};
 				// ^ UTF-16, just rolling with it...
 				static const char version_patched[] = {
-					'K', 0x00, 'E', 0x00, 'K', 0x00, 'S', 0x00
+					'C', 0, 'a', 0, 'k', 0, 'e', 0
 					};
-				
+
 				patchMemory(code, size,
 				version_pattern, sizeof(version_pattern), 0,
 				version_patched, sizeof(version_patched), 1);
@@ -387,24 +418,25 @@ void patchCode(u64 progId, u8 *code, u32 size)
                 sizeof(stopCartUpdatesPatch), 2
             );
 
-            if(OC_N3DS)
-            {
-                static const u8 cfgN3dsCpuPattern[] = {
-                    0x40, 0xA0, 0xE1, 0x07, 0x00
-                };
-
-                u8 *cfgN3dsCpuLoc = memsearch(code, cfgN3dsCpuPattern, size, sizeof(cfgN3dsCpuPattern));
-
-                //Patch N3DS CPU Clock and L2 cache setting
-                if(cfgN3dsCpuLoc != NULL)
-                {
-                    *(u32 *)(cfgN3dsCpuLoc + 3) = 0xE1A00000;
-                    *(u32 *)(cfgN3dsCpuLoc + 0x1F) = 0xE3A00001; // Make it 0xE3A00000 to disable L2 cache
-                }
-            }
-
             break;
         }
+	}
+
+	int clock_cfg = getClockConfig(progId);
+	if(clock_cfg > '0')
+		{
+			static const u8 cfgN3dsCpuPattern[] = {
+				0x40, 0xA0, 0xE1, 0x07, 0x00
+		};
+
+		u8 *cfgN3dsCpuLoc = memsearch(code, cfgN3dsCpuPattern, size, sizeof(cfgN3dsCpuPattern));
+
+		//Patch N3DS CPU Clock and L2 cache setting
+		if(cfgN3dsCpuLoc != NULL)
+		{
+			*(u32 *)(cfgN3dsCpuLoc + 3) = 0xE1A00000;
+			*(u32 *)(cfgN3dsCpuLoc + 0x1F) = (clock_cfg - 1 > '0') ? 0xE3A00003 : 0xE3A00000;
+		}
 	}
 
 	u32 tidHigh = (progId & 0xFFFFFFF000000000LL) >> 0x24;
@@ -426,6 +458,5 @@ void patchCode(u64 progId, u8 *code, u32 size)
 				if(regionId != 0xFF) patchCfgGetRegion(code, size, regionId, CFGUHandleOffset);
 			}
 		}
-	}
-	
+	}	
 }
