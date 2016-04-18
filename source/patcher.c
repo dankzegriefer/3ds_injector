@@ -245,6 +245,18 @@ static void patchCfgGetRegion(u8 *code, u32 size, u8 regionId, u32 CFGUHandleOff
 // Returns 0 if file doesn't exists, or can't be opened
 
 static int getClockConfig(u64 progid) {
+	
+	IFile clock_all;
+	Result ret;
+	u64 total;
+	
+	ret = fileOpen(&clock_all, ARCHIVE_SDMC, CLOCK_ALL_PATH, FS_OPEN_READ);
+
+	if (R_SUCCEEDED(ret)) {
+		IFile_Close(&clock_all);
+		return '2';
+	}
+		
 	char path[] = CLOCK_PATH;
 
 	u32 end = strlen(path) - 5;
@@ -255,8 +267,6 @@ static int getClockConfig(u64 progid) {
 	}
 	
 	IFile file;
-	Result ret;
-	u64 total;
 
 	ret = fileOpen(&file, ARCHIVE_SDMC, path, FS_OPEN_READ);
 	u8 clock_cfg;
