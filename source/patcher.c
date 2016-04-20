@@ -240,9 +240,10 @@ static void patchCfgGetRegion(u8 *code, u32 size, u8 regionId, u32 CFGUHandleOff
     }
 }
 
-// Returns the value at CLOCK_PATH, obtained from progId
-// 0 = Don't enable, 1 = Only N3DS clock speed patch, 2 = N3DS clock speed patch + enable L2 cache
-// Returns 0 if file doesn't exists, or can't be opened
+/* Returns the value at CLOCK_PATH, obtained from progId
+ 0 = Don't enable, 1 = Only N3DS clock speed patch, 2 = N3DS clock speed patch + enable L2 cache
+ Returns 0 if file doesn't exists, or can't be opened
+ Always returns 2 if 'clock_all' exists */
 
 static int getClockConfig(u64 progid) {
 	
@@ -254,7 +255,7 @@ static int getClockConfig(u64 progid) {
 
 	if (R_SUCCEEDED(ret)) {
 		IFile_Close(&clock_all);
-		return '2';
+		return 2;
 	}
 		
 	char path[] = CLOCK_PATH;
@@ -278,7 +279,8 @@ static int getClockConfig(u64 progid) {
 		ret = IFile_Read(&file, &total, &clock_cfg, 1);
 		IFile_Close(&file);
 	}
-	return (int)clock_cfg + '0';
+
+	return (int)clock_cfg - '0'; // Substract '0' due to ASCII stuff
 }
 
 static int replaceCode(u64 progid, u8 *code, u32 size) {
@@ -344,13 +346,7 @@ void patchCode(u64 progId, u8 *code, u32 size)
             static const u8 blockAutoUpdatesPatch[] = {
                 0xE3, 0xA0
             };
-            static const u8 skipEshopUpdateCheckPattern[] = {
-                0x30, 0xB5, 0xF1, 0xB0
-            };
-            static const u8 skipEshopUpdateCheckPatch[] = {
-                0x00, 0x20, 0x08, 0x60, 0x70, 0x47
-            };
-
+ 
             //Block silent auto-updates
             patchMemory(code, size, 
                 blockAutoUpdatesPattern, 
@@ -358,33 +354,6 @@ void patchCode(u64 progId, u8 *code, u32 size)
                 blockAutoUpdatesPatch, 
                 sizeof(blockAutoUpdatesPatch), 1
             );
-
-            //Skip update checks to access the EShop
-            patchMemory(code, size, 
-                skipEshopUpdateCheckPattern, 
-                sizeof(skipEshopUpdateCheckPattern), 0, 
-                skipEshopUpdateCheckPatch, 
-                sizeof(skipEshopUpdateCheckPatch), 1
-            );
-
-            break;
-        }
-
-        case 0x0004013000003202LL: // FRIENDS
-        {
-            static const u8 fpdVerPattern[] = {
-                0xE0, 0x1E, 0xFF, 0x2F, 0xE1, 0x01, 0x01, 0x01
-            };
-
-            u8 *fdpVer = memsearch(code, fpdVerPattern, size, sizeof(fpdVerPattern));
-
-            if(fdpVer != NULL)
-            {
-                fdpVer += sizeof(fpdVerPattern) + 1;
-
-                //Allow online access to work with old friends modules
-                if(*fdpVer < 5) *fdpVer = 5;
-            }
 
             break;
         }
@@ -433,7 +402,7 @@ void patchCode(u64 progId, u8 *code, u32 size)
 	}
 
 	int clock_cfg = getClockConfig(progId);
-	if(clock_cfg > '0')
+	if(clock_cfg)
 		{
 			static const u8 cfgN3dsCpuPattern[] = {
 				0x40, 0xA0, 0xE1, 0x07, 0x00
@@ -445,7 +414,7 @@ void patchCode(u64 progId, u8 *code, u32 size)
 		if(cfgN3dsCpuLoc != NULL)
 		{
 			*(u32 *)(cfgN3dsCpuLoc + 3) = 0xE1A00000;
-			*(u32 *)(cfgN3dsCpuLoc + 0x1F) = (clock_cfg - 1 > '0') ? 0xE3A00003 : 0xE3A00000;
+			*(u32 *)(cfgN3dsCpuLoc + 0x1F) = (clock_cfg - 1) ? 0xE3A00003 : 0xE3A00000;
 		}
 	}
 
