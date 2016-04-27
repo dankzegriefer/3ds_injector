@@ -35,7 +35,7 @@ static u8 *memsearch(u8 *startPos, const void *pattern, u32 size, u32 patternSiz
     return NULL;
 }
 
-static u32 patchMemory(u8 *start, u32 size, const void *pattern, u32 patSize, int offset, const void *replace, u32 repSize, u32 count)
+static u32 patch_memory(u8 *start, u32 size, const void *pattern, u32 patSize, int offset, const void *replace, u32 repSize, u32 count)
 {
     u32 i;
 
@@ -58,7 +58,7 @@ static u32 patchMemory(u8 *start, u32 size, const void *pattern, u32 patSize, in
     return i;
 }
 
-static int fileOpen(IFile *file, FS_ArchiveID id, const char *path, int flags)
+static int file_open(IFile *file, FS_ArchiveID id, const char *path, int flags)
 {
     FS_Archive archive;
     FS_Path ppath;
@@ -75,7 +75,7 @@ static int fileOpen(IFile *file, FS_ArchiveID id, const char *path, int flags)
     return IFile_Open(file, archive, ppath, flags);
 }
 
-static int loadTitleLocaleConfig(u64 progId, u8 *regionId, u8 *languageId)
+static int load_title_locale_config(u64 progid, u8 *regionId, u8 *languageId)
 {
     /* Here we look for "/injector/locales/[u64 titleID in hex, uppercase].txt"
        If it exists it should contain, for example, "EUR IT" */
@@ -84,15 +84,15 @@ static int loadTitleLocaleConfig(u64 progId, u8 *regionId, u8 *languageId)
 
     u32 i = strlen(path) - 5;
 
-    while(progId > 0)
+    while(progid > 0)
     {
         static const char hexDigits[] = "0123456789ABCDEF";
-        path[i--] = hexDigits[(u32)(progId & 0xF)];
-        progId >>= 4;
+        path[i--] = hexDigits[(u32)(progid & 0xF)];
+        progid >>= 4;
     }
 
     IFile file;
-    Result ret = fileOpen(&file, ARCHIVE_SDMC, path, FS_OPEN_READ);
+    Result ret = file_open(&file, ARCHIVE_SDMC, path, FS_OPEN_READ);
     if(R_SUCCEEDED(ret))
     {
         char buf[6];
@@ -129,7 +129,7 @@ static int loadTitleLocaleConfig(u64 progId, u8 *regionId, u8 *languageId)
     return ret;
 }
 
-static u8 *getCfgOffsets(u8 *code, u32 size, u32 *CFGUHandleOffset)
+static u8 *get_cfg_offsets(u8 *code, u32 size, u32 *CFGUHandleOffset)
 {
     /* HANS:
        Look for error code which is known to be stored near cfg:u handle
@@ -169,7 +169,7 @@ static u8 *getCfgOffsets(u8 *code, u32 size, u32 *CFGUHandleOffset)
     return NULL;
 }
 
-static void patchCfgGetLanguage(u8 *code, u32 size, u8 languageId, u8 *CFGU_GetConfigInfoBlk2_endPos)
+static void patch_CfgGetLanguage(u8 *code, u32 size, u8 languageId, u8 *CFGU_GetConfigInfoBlk2_endPos)
 {
     u8 *CFGU_GetConfigInfoBlk2_startPos; //Let's find STMFD SP (there might be a NOP before, but nevermind)
 
@@ -217,7 +217,7 @@ static void patchCfgGetLanguage(u8 *code, u32 size, u8 languageId, u8 *CFGU_GetC
     }
 }
 
-static void patchCfgGetRegion(u8 *code, u32 size, u8 regionId, u32 CFGUHandleOffset)
+static void patch_CfgGetRegion(u8 *code, u32 size, u8 regionId, u32 CFGUHandleOffset)
 {
     for(u8 *cmdPos = code; cmdPos < code + size - 28; cmdPos += 4)
     {
@@ -240,50 +240,33 @@ static void patchCfgGetRegion(u8 *code, u32 size, u8 regionId, u32 CFGUHandleOff
     }
 }
 
-/* Returns the value at CLOCK_PATH, obtained from progId
+/*
+ Returns the value at '/injector/clock', obtained from progid
  0 = Don't enable, 1 = Only N3DS clock speed patch, 2 = N3DS clock speed patch + enable L2 cache
  Returns 0 if file doesn't exists, or can't be opened
- Always returns 2 if 'clock_all' exists */
+*/
 
-static int getClockConfig(u64 progid) {
-	
-	IFile clock_all;
+static int get_clock_config(u64 progid) {
+
+	IFile clock_file;
 	Result ret;
 	u64 total;
-	
-	ret = fileOpen(&clock_all, ARCHIVE_SDMC, CLOCK_ALL_PATH, FS_OPEN_READ);
+	char clock_cfg[1];
+
+	ret = file_open(&clock_file, ARCHIVE_SDMC, CLOCK_ALL_PATH, FS_OPEN_READ);
 
 	if (R_SUCCEEDED(ret)) {
-		IFile_Close(&clock_all);
-		return 2;
+		ret = IFile_Read(&clock_file, &total, &clock_cfg, 1);
+		IFile_Close(&clock_file);
 	}
-		
-	char path[] = CLOCK_PATH;
-
-	u32 end = strlen(path) - 5;
-	
-	for (int x = 0; x < 16; x++) {
-		char* hexArray = "0123456789ABCDEF";
-		path[end - x] = hexArray[((progid >> 4*x) & 0xF)];
-	}
-	
-	IFile file;
-
-	ret = fileOpen(&file, ARCHIVE_SDMC, path, FS_OPEN_READ);
-	u8 clock_cfg;
 
 	if (R_FAILED(ret))
 		return 0;
 
-	if (R_SUCCEEDED(ret)) {
-		ret = IFile_Read(&file, &total, &clock_cfg, 1);
-		IFile_Close(&file);
-	}
-
-	return (int)clock_cfg - '0'; // Substract '0' due to ASCII stuff
+	return (int)clock_cfg[0] - '0'; // Substract '0' due to ASCII stuff
 }
 
-static int replaceCode(u64 progid, u8 *code, u32 size) {
+static int replace_code(u64 progid, u8 *code, u32 size) {
 
 	char path[] = CODE_PATH;
 
@@ -299,19 +282,23 @@ static int replaceCode(u64 progid, u8 *code, u32 size) {
 	Result ret;
 	u64 total;
 
-	ret = fileOpen(&file, ARCHIVE_SDMC, path, FS_OPEN_READ); // Open the door
+	ret = file_open(&file, ARCHIVE_SDMC, path, FS_OPEN_READ); // Open the door
 	if (R_SUCCEEDED(ret)) { // Check the floor
 		ret = IFile_Read(&file, &total, code, size); // Everybody walk the dinosaur
 		IFile_Close(&file); // err, I mean, load contents of (path) into (code)
 	}
+
 	return ret;
 }
 
-void patchCode(u64 progId, u8 *code, u32 size)
+void patch_code(u64 progid, u8 *code, u32 size)
 {	
-	replaceCode(progId, code, size);
-	
-    switch(progId)
+
+	u32 tid_high = (progid & 0xFFFFFFF000000000LL) >> 0x24;
+
+	replace_code(progid, code, size); // WARNING: IT REPLACES SYSTEM TITLES' CODE AS WELL
+
+    switch(progid)
     {
         case 0x0004003000008F02LL: // USA Menu
         case 0x0004003000008202LL: // EUR Menu
@@ -320,39 +307,19 @@ void patchCode(u64 progId, u8 *code, u32 size)
         case 0x000400300000A902LL: // KOR Menu
         case 0x000400300000B102LL: // TWN Menu
         {
-            static const u8 regionFreePattern[] = {
+            static const u8 region_free_pattern[] = {
                 0x00, 0x00, 0x55, 0xE3, 0x01, 0x10, 0xA0, 0xE3
             };
-            static const u8 regionFreePatch[] = {
+            static const u8 region_free_patch[] = {
                 0x01, 0x00, 0xA0, 0xE3, 0x1E, 0xFF, 0x2F, 0xE1
             };
 
             //Patch SMDH region checks
-            patchMemory(code, size, 
-                regionFreePattern, 
-                sizeof(regionFreePattern), -16, 
-                regionFreePatch, 
-                sizeof(regionFreePatch), 1
-            );
-
-            break;
-        }
-
-        case 0x0004013000002C02LL: // NIM
-        {
-            static const u8 blockAutoUpdatesPattern[] = {
-                0x25, 0x79, 0x0B, 0x99
-            };
-            static const u8 blockAutoUpdatesPatch[] = {
-                0xE3, 0xA0
-            };
- 
-            //Block silent auto-updates
-            patchMemory(code, size, 
-                blockAutoUpdatesPattern, 
-                sizeof(blockAutoUpdatesPattern), 0, 
-                blockAutoUpdatesPatch, 
-                sizeof(blockAutoUpdatesPatch), 1
+            patch_memory(code, size, 
+                region_free_pattern, 
+                sizeof(region_free_pattern), -16, 
+                region_free_patch, 
+                sizeof(region_free_patch), 1
             );
 
             break;
@@ -373,7 +340,7 @@ void patchCode(u64 progId, u8 *code, u32 size)
 					'C', 0, 'a', 0, 'k', 0, 'e', 0
 					};
 
-				patchMemory(code, size,
+				patch_memory(code, size,
 				version_pattern, sizeof(version_pattern), 0,
 				version_patched, sizeof(version_patched), 1);
 
@@ -382,59 +349,55 @@ void patchCode(u64 progId, u8 *code, u32 size)
 
         case 0x0004013000008002LL: // NS
         {
-            static const u8 stopCartUpdatesPattern[] = {
+            static const u8 stop_cart_updates_pattern[] = {
                 0x0C, 0x18, 0xE1, 0xD8
             };
-            static const u8 stopCartUpdatesPatch[] = {
+            static const u8 stop_cart_updates_patch[] = {
                 0x0B, 0x18, 0x21, 0xC8
             };
 
             //Disable updates from foreign carts (makes carts region-free)
-            patchMemory(code, size, 
-                stopCartUpdatesPattern, 
-                sizeof(stopCartUpdatesPattern), 0, 
-                stopCartUpdatesPatch,
-                sizeof(stopCartUpdatesPatch), 2
+            patch_memory(code, size, 
+                stop_cart_updates_pattern, 
+                sizeof(stop_cart_updates_pattern), 0, 
+                stop_cart_updates_patch,
+                sizeof(stop_cart_updates_patch), 2
             );
 
-            break;
+			int clock_cfg = get_clock_config(progid);
+
+			if (!clock_cfg)
+				break;
+
+			static const u8 cfg_N3dsCpuPattern[] = {
+				0x40, 0xA0, 0xE1, 0x07, 0x00
+			};
+
+			u8 *cfg_N3dsCpuLoc = memsearch(code, cfg_N3dsCpuPattern, size, sizeof(cfg_N3dsCpuPattern));
+
+			if(cfg_N3dsCpuLoc != NULL)
+			{
+				*(u32 *)(cfg_N3dsCpuLoc + 3) = 0xE1A00000;
+				*(u32 *)(cfg_N3dsCpuLoc + 0x1F) = (clock_cfg  == 2) ? 0xE3A00003 : 0xE3A00000;
+			}
+			break;
         }
 	}
 
-	int clock_cfg = getClockConfig(progId);
-	if(clock_cfg)
-		{
-			static const u8 cfgN3dsCpuPattern[] = {
-				0x40, 0xA0, 0xE1, 0x07, 0x00
-		};
-
-		u8 *cfgN3dsCpuLoc = memsearch(code, cfgN3dsCpuPattern, size, sizeof(cfgN3dsCpuPattern));
-
-		//Patch N3DS CPU Clock and L2 cache setting
-		if(cfgN3dsCpuLoc != NULL)
-		{
-			*(u32 *)(cfgN3dsCpuLoc + 3) = 0xE1A00000;
-			*(u32 *)(cfgN3dsCpuLoc + 0x1F) = (clock_cfg - 1) ? 0xE3A00003 : 0xE3A00000;
-		}
-	}
-
-	u32 tidHigh = (progId & 0xFFFFFFF000000000LL) >> 0x24;
-
-	if(tidHigh == 0x0004000)
+	if(tid_high == 0x0004000)
 	{
 		//Language emulation
-		u8 regionId = 0xFF,
-		languageId = 0xFF;
-		int ret = loadTitleLocaleConfig(progId, &regionId, &languageId);
+		u8 region_id = 0xFF,
+		language_id = 0xFF;
+		int ret = load_title_locale_config(progid, &region_id, &language_id);
 
 		if(R_SUCCEEDED(ret))
 		{
 			u32 CFGUHandleOffset;
-			u8 *CFGU_GetConfigInfoBlk2_endPos = getCfgOffsets(code, size, &CFGUHandleOffset);
-			if(CFGU_GetConfigInfoBlk2_endPos != NULL)
-			{
-				if(languageId != 0xFF) patchCfgGetLanguage(code, size, languageId, CFGU_GetConfigInfoBlk2_endPos);
-				if(regionId != 0xFF) patchCfgGetRegion(code, size, regionId, CFGUHandleOffset);
+			u8 *CFGU_GetConfigInfoBlk2_endPos = get_cfg_offsets(code, size, &CFGUHandleOffset);
+			if(CFGU_GetConfigInfoBlk2_endPos != NULL) {
+				if(language_id != 0xFF) patch_CfgGetLanguage(code, size, language_id, CFGU_GetConfigInfoBlk2_endPos);
+				if(region_id != 0xFF) patch_CfgGetRegion(code, size, region_id, CFGUHandleOffset); // Only patch if region isn't WLD yet
 			}
 		}
 	}	

@@ -2,4 +2,4 @@
 
 #include <3ds/types.h>
 
-void patchCode(u64 progId, u8 *code, u32 size);
+void patch_code(u64 progId, u8 *code, u32 size);

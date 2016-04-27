@@ -10,12 +10,8 @@ TOPDIR ?= $(CURDIR)
 MAKEROM ?= makerom
 include $(DEVKITARM)/3ds_rules
 
-ifeq ($(OS),Windows_NT)
-PYTHON = py -3
-else
-PYTHON = python3
-endif
-
+PYTHON = python
+# If you have python 2.x just update you dinosaur :P
 
 #---------------------------------------------------------------------------------
 # TARGET is the name of the output

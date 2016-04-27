@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 from sys import argv, stderr, exit
 from struct import pack, calcsize
 from yaml import load, dump
@@ -41,6 +42,12 @@ def die(string):
     print(string, file=stderr)
     exit(1)
 
+# Pad file to align it to x bytes
+def align(file, alignment):
+    x = alignment - file.tell() % alignment
+    if x < alignment:
+        file.write(b'\0' * x)
+
 if len(argv) < 3:
     die("Usage: %s <info.yaml> <output.cake>" % argv[0])
 
@@ -58,17 +65,23 @@ if not "patches" in info:
 # Open destination file
 cake = open(argv[2], "wb")
 
-# Main header
-cake.write(pack(header_struct,
-    format_version,
-    len(info["patches"]),
-    len(info["description"]) + calcsize(header_struct) + 1
-))
+# Write the description string
+cake.seek(calcsize(header_struct))
 cake.write((info["description"] + '\0').encode())
+
+align(cake, 4)  # Align to 4 bytes
 
 # Know the starting positions of the patches array and the versions array
 patches_offset = cake.tell()
 versions_offset = cake.tell() + calcsize(patch_struct) * len(info["patches"])
+
+# Write the main header
+cake.seek(0)
+cake.write(pack(header_struct,
+    format_version,
+    len(info["patches"]),
+    patches_offset
+))
 
 # We'll save all the known memory patches here
 memory_list = []
@@ -210,7 +223,7 @@ for patch_name in info["patches"]:
             offset = patch_code.find(variable.encode())
             if offset == -1:
                 die("Coudn't find variable '%s' in patch: %s" % (variable, patch_name))
-            cake.write(pack("I", offset))
+            cake.write(pack("<I", offset))
 
             variable_count += 1
 
@@ -271,7 +284,7 @@ for patch_name in info["patches"]:
                         if not isinstance(variable, int):
                             die("Incompatible type for variable in version: %s-%s-%x" % (patch_name, console, version))
 
-                        cake.write(pack("I", variable))
+                        cake.write(pack("<I", variable))
                     variables_offset = cake.tell()
 
                 cake.seek(versions_offset)
@@ -286,11 +299,12 @@ for patch_name in info["patches"]:
     cake.seek(variables_offset)
 
     # Write the actual code to the file
-    cake.write(b'\0' * (4 - cake.tell() % 4))  # Align to 4 bytes
+    align(cake, 4)  # Align to 4 bytes
     patch_offset = cake.tell()  # The current location is the start of the patch
     cake.write(patch_code)
 
     # Set the current location for writing the next versions array.
+    align(cake, 4)  # Align to 4 bytes
     versions_offset = cake.tell()
 
     # Close the patch file
