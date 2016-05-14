@@ -58,9 +58,9 @@ static u32 patch_memory(u8 *start, u32 size, const void *pattern, u32 patSize, i
     return i;
 }
 
-static int file_open(IFile *file, FS_ArchiveID id, const char *path, int flags)
+static int file_open(IFile *file, FS_ArchiveID archiveId, const char *path, int flags)
 {
-    FS_Archive archive;
+    /*FS_Archive archive;
     FS_Path ppath;
 
     size_t len = strnlen(path, PATH_MAX);
@@ -72,7 +72,10 @@ static int file_open(IFile *file, FS_ArchiveID id, const char *path, int flags)
     ppath.data = path;
     ppath.size = len + 1;
 
-    return IFile_Open(file, archive, ppath, flags);
+    return IFile_Open(file, archive, ppath, flags);*/
+
+    FS_Path filePath = {PATH_ASCII, strnlen(path, PATH_MAX) + 1, path}, archivePath = {PATH_EMPTY, 1, (u8 *)""};
+    return IFile_Open(file, archiveId, archivePath, filePath, flags);
 }
 
 static int load_title_locale_config(u64 progid, u8 *regionId, u8 *languageId)
