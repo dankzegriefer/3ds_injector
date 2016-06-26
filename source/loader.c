@@ -3,7 +3,6 @@
 #include <sys/iosupport.h>
 #include "patcher.h"
 #include "exheader.h"
-#include "ifile.h"
 #include "fsldr.h"
 #include "fsreg.h"
 #include "pxipm.h"
@@ -109,68 +108,59 @@ static Result allocate_shared_mem(prog_addrs_t *shared, prog_addrs_t *vaddr, int
 
 static Result load_code(u64 progid, prog_addrs_t *shared, u64 prog_handle, int is_compressed)
 {
-  IFile file;
-  /*FS_Archive archive;
-  FS_Path path;*/
-  FS_Path archivePath;
-  FS_Path filePath;
-  Result res;
-  u64 size;
-  u64 total;
+    Handle handle;
+    FS_Path archivePath;
+    FS_Path path;
+    Result res;
+    u64 size;
+    u32 total;
 
-  /*archive.id = ARCHIVE_SAVEDATA_AND_CONTENT2;
-  archive.lowPath.type = PATH_BINARY;
-  archive.lowPath.data = &prog_handle;
-  archive.lowPath.size = 8;
-  //archive.handle = prog_handle; // not needed
-  path.type = PATH_BINARY;
-  path.data = CODE_PATH;
-  path.size = sizeof(CODE_PATH);
-  if (R_FAILED(IFile_Open(&file, archive, path, FS_OPEN_READ)))*/
-  archivePath.type = PATH_BINARY;
-  archivePath.data = &prog_handle;
-  archivePath.size = 8;
+    archivePath.type = PATH_BINARY;
+    archivePath.data = &prog_handle;
+    archivePath.size = 8;
 
-  filePath.type = PATH_BINARY;
-  filePath.data = CODE_PATH;
-  filePath.size = sizeof(CODE_PATH);
-  if (R_FAILED(IFile_Open(&file, ARCHIVE_SAVEDATA_AND_CONTENT2, archivePath, filePath, FS_OPEN_READ)))
-  {
-    svcBreak(USERBREAK_ASSERT);
-  }
+    path.type = PATH_BINARY;
+    path.data = CODE_PATH;
+    path.size = sizeof(CODE_PATH);
 
-  // get file size
-  if (R_FAILED(IFile_GetSize(&file, &size)))
-  {
-    IFile_Close(&file);
-    svcBreak(USERBREAK_ASSERT);
-  }
+    if (R_FAILED(FSLDR_OpenFileDirectly(&handle, ARCHIVE_SAVEDATA_AND_CONTENT2, archivePath, path, FS_OPEN_READ, 0)))
+    {
+        svcBreak(USERBREAK_ASSERT);
+    }
 
-  // check size
-  if (size > (u64)shared->total_size << 12)
-  {
-    IFile_Close(&file);
-    return 0xC900464F;
-  }
+    // get file size
+    if (R_FAILED(FSFILE_GetSize(handle, &size)))
+    {
+        FSFILE_Close(handle);
+        svcBreak(USERBREAK_ASSERT);
+    }
 
-  // read code
-  res = IFile_Read(&file, &total, (void *)shared->text_addr, size);
-  IFile_Close(&file); // done reading
-  if (R_FAILED(res))
-  {
-    svcBreak(USERBREAK_ASSERT);
-  }
+    // check size
+    if (size > (u64)shared->total_size << 12)
+    {
+        FSFILE_Close(handle);
+        return 0xC900464F;
+    }
 
-  // decompress
-  if (is_compressed)
-  {
-    lzss_decompress((u8 *)shared->text_addr + size);
-  }
+    // read code
+    res = FSFILE_Read(handle, &total, 0, (void*)shared->text_addr, size);
+    FSFILE_Close(handle); // done reading
 
-  // patch
-  patch_code(progid, (u8 *)shared->text_addr, shared->total_size << 12);
+    if (R_FAILED(res))
+    {
+        svcBreak(USERBREAK_ASSERT);
+    }
 
-  return 0;
+    // decompress in place
+    if (is_compressed)
+    {
+        lzss_decompress((u8*)shared->text_addr + size);
+    }
+
+    // patch
+    patch_code(progid, (u8*)shared->text_addr, shared->total_size << 12);
+
+    return 0;
 }
 
 static Result loader_GetProgramInfo(exheader_header *exheader, u64 prog_handle)

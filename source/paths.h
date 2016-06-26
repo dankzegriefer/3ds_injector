@@ -4,4 +4,4 @@
 
 #define CODE_PATH      BASE_PATH "code/0000000000000000.bin"
 #define LOCALES_PATH   BASE_PATH "locales/0000000000000000.txt"
-#define CLOCK_ALL_PATH BASE_PATH "clock.txt"
+#define CLOCK_PATH     BASE_PATH "clock.txt"

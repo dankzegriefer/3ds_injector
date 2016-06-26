@@ -1,13 +1,14 @@
 #include <3ds.h>
 #include <string.h>
 #include "patcher.h"
-#include "ifile.h"
-
+#include "fsldr.h"
 #include "paths.h"
 
 #ifndef PATH_MAX
 #define PATH_MAX 255
 #endif
+
+static const char hexDigits[] = "0123456789ABCDEF";
 
 //Quick Search algorithm, adapted from http://igm.univ-mlv.fr/~lecroq/string/node19.html#SECTION00190
 static u8 *memsearch(u8 *startPos, const void *pattern, u32 size, u32 patternSize)
@@ -58,24 +59,22 @@ static u32 patch_memory(u8 *start, u32 size, const void *pattern, u32 patSize, i
     return i;
 }
 
-static int file_open(IFile *file, FS_ArchiveID archiveId, const char *path, int flags)
+static int file_open(Handle *file, FS_ArchiveID id, const char *path, int flags)
 {
-    /*FS_Archive archive;
-    FS_Path ppath;
+    FS_Path archive;
+    FS_Path fspath;
 
-    size_t len = strnlen(path, PATH_MAX);
-    archive.id = id;
-    archive.lowPath.type = PATH_EMPTY;
-    archive.lowPath.size = 1;
-    archive.lowPath.data = (u8 *)"";
-    ppath.type = PATH_ASCII;
-    ppath.data = path;
-    ppath.size = len + 1;
+    archive.type = PATH_EMPTY;
+    archive.size = 1;
+    archive.data = (u8 *)"";
 
-    return IFile_Open(file, archive, ppath, flags);*/
+    fspath.type = PATH_ASCII;
+    fspath.data = path;
+    fspath.size = strnlen(path, PATH_MAX) + 1;
 
-    FS_Path filePath = {PATH_ASCII, strnlen(path, PATH_MAX) + 1, path}, archivePath = {PATH_EMPTY, 1, (u8 *)""};
-    return IFile_Open(file, archiveId, archivePath, filePath, flags);
+    Result ret = FSLDR_OpenFileDirectly(file, id, archive, fspath, flags, 0);
+
+    return ret;
 }
 
 static int load_title_locale_config(u64 progid, u8 *regionId, u8 *languageId)
@@ -89,20 +88,19 @@ static int load_title_locale_config(u64 progid, u8 *regionId, u8 *languageId)
 
     while(progid > 0)
     {
-        static const char hexDigits[] = "0123456789ABCDEF";
         path[i--] = hexDigits[(u32)(progid & 0xF)];
         progid >>= 4;
     }
 
-    IFile file;
+    Handle file;
     Result ret = file_open(&file, ARCHIVE_SDMC, path, FS_OPEN_READ);
     if(R_SUCCEEDED(ret))
     {
         char buf[6];
-        u64 total;
+        u32 total;
 
-        ret = IFile_Read(&file, &total, buf, 6);
-        IFile_Close(&file);
+        ret = FSFILE_Read(file, &total, 0, buf, 6);
+        FSFILE_Close(file);
 
         if(!R_SUCCEEDED(ret) || total < 6) return -1;
 
@@ -243,61 +241,53 @@ static void patch_CfgGetRegion(u8 *code, u32 size, u8 regionId, u32 CFGUHandleOf
     }
 }
 
-/*
- Returns the value at '/injector/clock', obtained from progid
- 0 = Don't enable, 1 = Only N3DS clock speed patch, 2 = N3DS clock speed patch + enable L2 cache
- Returns 0 if file doesn't exists, or can't be opened
-*/
-
-static int get_clock_config(u64 progid) {
-
-	IFile clock_file;
-	Result ret;
-	u64 total;
-	char clock_cfg[1];
-
-	ret = file_open(&clock_file, ARCHIVE_SDMC, CLOCK_ALL_PATH, FS_OPEN_READ);
-
-	if (R_SUCCEEDED(ret)) {
-		ret = IFile_Read(&clock_file, &total, &clock_cfg, 1);
-		IFile_Close(&clock_file);
-	}
-
-	if (R_FAILED(ret))
-		return 0;
-
-	return (int)clock_cfg[0] - '0'; // Substract '0' due to ASCII stuff
-}
-
 static int replace_code(u64 progid, u8 *code, u32 size) {
 
 	char path[] = CODE_PATH;
 
-	u32 end = strlen(path) - 5; // strlen(path) >= 20, so I don't need to check this
-	// Unless someone really wants to fuck shit up of course
+	u32 end = strlen(path) - 5;
 
-	for (int x = 0; x < 16; x++) {
-		char* hexArray = "0123456789ABCDEF";
-		path[end - x] = hexArray[((progid >> 4*x) & 0xF)];
-	}
+	for (int x = 0; x < 16; x++)
+		path[end - x] = hexDigits[((progid >> 4*x) & 0xF)];
 
-	IFile file;
+	Handle file;
 	Result ret;
-	u64 total;
+	u32 total;
 
-	ret = file_open(&file, ARCHIVE_SDMC, path, FS_OPEN_READ); // Open the door
-	if (R_SUCCEEDED(ret)) { // Check the floor
-		ret = IFile_Read(&file, &total, code, size); // Everybody walk the dinosaur
-		IFile_Close(&file); // err, I mean, load contents of (path) into (code)
+	ret = file_open(&file, ARCHIVE_SDMC, path, FS_OPEN_READ);
+	if (R_SUCCEEDED(ret))
+    {
+		ret = FSFILE_Read(file, &total, 0, code, size);
+		FSFILE_Close(file);
 	}
 
 	return ret;
 }
 
+static int get_clock_config()
+{
+    char path[] = CLOCK_PATH;
+
+    Handle file;
+    Result ret;
+    u32 total;
+    u8 cfg[1] = {0};
+
+    ret = file_open(&file, ARCHIVE_SDMC, path, FS_OPEN_READ);
+    if (R_SUCCEEDED(ret))
+    {
+        FSFILE_Read(file, &total, 0, &cfg, 1);
+        FSFILE_Close(file);
+        cfg[0] -= '0';
+    }
+    
+    return cfg[0];
+}
+
+
 void patch_code(u64 progid, u8 *code, u32 size)
 {	
-
-	u32 tid_high = (progid & 0xFFFFFFF000000000LL) >> 0x24;
+    u32 tid_high = (progid & 0xFFFFFFF000000000LL) >> 0x24;
 
 	replace_code(progid, code, size); // WARNING: IT REPLACES SYSTEM TITLES' CODE AS WELL
 
@@ -310,20 +300,51 @@ void patch_code(u64 progid, u8 *code, u32 size)
         case 0x000400300000A902LL: // KOR Menu
         case 0x000400300000B102LL: // TWN Menu
         {
-            static const u8 region_free_pattern[] = {
-                0x00, 0x00, 0x55, 0xE3, 0x01, 0x10, 0xA0, 0xE3
-            };
-            static const u8 region_free_patch[] = {
-                0x01, 0x00, 0xA0, 0xE3, 0x1E, 0xFF, 0x2F, 0xE1
-            };
+            static const u8 region_free_pattern[] = {0x00, 0x00, 0x55, 0xE3, 0x01, 0x10, 0xA0, 0xE3},
+                            region_free_patch[]   = {0x01, 0x00, 0xA0, 0xE3, 0x1E, 0xFF, 0x2F, 0xE1};
 
             //Patch SMDH region checks
             patch_memory(code, size, 
                 region_free_pattern, 
                 sizeof(region_free_pattern), -16, 
                 region_free_patch, 
-                sizeof(region_free_patch), 1
-            );
+                sizeof(region_free_patch), 1);
+
+            break;
+        }
+
+        case 0x0004013000001702LL: // CFG
+        {
+            static const u8 secureinfo_sig_check_pattern[] = {0x06, 0x46, 0x10, 0x48, 0xFC},
+                            secureinfo_sig_check_patch[] = {0x00, 0x26};
+            
+            patch_memory(code, size, 
+                secureinfo_sig_check_pattern, 
+                sizeof(secureinfo_sig_check_pattern), 0, 
+                secureinfo_sig_check_patch, 
+                sizeof(secureinfo_sig_check_patch), 1);
+
+            break;
+        }
+        
+        case 0x0004013000002C02LL: // NIM
+        {
+            static const u8 block_updates_pattern[] = {0x25, 0x79, 0x0B, 0x99},
+                            block_updates_patch[] = {0xE3, 0xA0},
+                            block_eshop_updates_pattern[] = {0x30, 0xB5, 0xF1, 0xB0},
+                            block_eshop_updates_patch[] = {0x00, 0x20, 0x08, 0x60, 0x70, 0x47};
+
+            patch_memory(code, size, 
+                block_updates_pattern, 
+                sizeof(block_updates_pattern), 0, 
+                block_updates_patch, 
+                sizeof(block_updates_patch), 1);
+
+            patch_memory(code, size, 
+                block_eshop_updates_pattern, 
+                sizeof(block_eshop_updates_pattern), 0, 
+                block_eshop_updates_patch, 
+                sizeof(block_eshop_updates_patch), 1);
 
             break;
         }
@@ -335,46 +356,36 @@ void patch_code(u64 progid, u8 *code, u32 size)
         case 0x0004001000027000LL: // KOR MSET
         case 0x0004001000028000LL: // TWN MSET
         {
-                static const char version_pattern[] = {
-					'V', 0, 'e', 0, 'r', 0, '.', 0
-					};
-				// ^ UTF-16, just rolling with it...
-				static const char version_patched[] = {
-					'C', 0, 'a', 0, 'k', 0, 'e', 0
-					};
+                // UTF-16, just roll with it...
+                static const u8 version_pattern[] = {'V', 0, 'e', 0, 'r', 0, '.', 0},
+				                version_patch[]   = {'C', 0, 'a', 0, 'k', 0, 'e', 0};
 
 				patch_memory(code, size,
-				version_pattern, sizeof(version_pattern), 0,
-				version_patched, sizeof(version_patched), 1);
+				version_pattern,
+                sizeof(version_pattern), 0,
+				version_patch, sizeof(version_patch), 1);
 
             break;
         }
 
         case 0x0004013000008002LL: // NS
         {
-            static const u8 stop_cart_updates_pattern[] = {
-                0x0C, 0x18, 0xE1, 0xD8
-            };
-            static const u8 stop_cart_updates_patch[] = {
-                0x0B, 0x18, 0x21, 0xC8
-            };
+            static const u8 stop_cart_updates_pattern[] = {0x0C, 0x18, 0xE1, 0xD8},
+                            stop_cart_updates_patch[]   = {0x0B, 0x18, 0x21, 0xC8};
 
             //Disable updates from foreign carts (makes carts region-free)
             patch_memory(code, size, 
                 stop_cart_updates_pattern, 
                 sizeof(stop_cart_updates_pattern), 0, 
                 stop_cart_updates_patch,
-                sizeof(stop_cart_updates_patch), 2
-            );
+                sizeof(stop_cart_updates_patch), 2);
 
-			int clock_cfg = get_clock_config(progid);
+			u32 clock_cfg = get_clock_config();
 
 			if (!clock_cfg)
 				break;
 
-			static const u8 cfg_N3dsCpuPattern[] = {
-				0x40, 0xA0, 0xE1, 0x07, 0x00
-			};
+			static const u8 cfg_N3dsCpuPattern[] = {0x40, 0xA0, 0xE1, 0x07, 0x00};
 
 			u8 *cfg_N3dsCpuLoc = memsearch(code, cfg_N3dsCpuPattern, size, sizeof(cfg_N3dsCpuPattern));
 
@@ -387,9 +398,9 @@ void patch_code(u64 progid, u8 *code, u32 size)
         }
 	}
 
-	if(tid_high == 0x0004000)
+	if(tid_high == 0x0004000 || tid_high == 0x00040002)
 	{
-		//Language emulation
+		//Language emulation, only for regular titles and demos
 		u8 region_id = 0xFF,
 		language_id = 0xFF;
 		int ret = load_title_locale_config(progid, &region_id, &language_id);
