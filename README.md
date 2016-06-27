@@ -62,7 +62,7 @@ yifanlu - Original open source loader module replacement
 
 mid-kid - patissier.py and Makefile (besides CakesFW, which is an awesome project)
 
-AuroraWright - Some modifications and cleanup
+AuroraWright - Some modifications and cleanup, RO sigpatches
 
 TuxSH - Overclocking/L2 patch, language emulation patch
 
